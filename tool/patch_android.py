@@ -79,8 +79,27 @@ def patch_min_sdk():
     open(path, "w", encoding="utf-8").write(new)
 
 
+def patch_lint():
+    # Release builds run Android lint (lintVital), which crashes on the
+    # google_sign_in_android plugin (JavaDocParser NoSuchMethodError) and
+    # blocks the APK. The app's own code compiles; lint is not needed here.
+    files = glob.glob("android/app/build.gradle*")
+    if not files:
+        fail("android/app/build.gradle(.kts) not found")
+    path = files[0]
+    s = open(path, encoding="utf-8").read()
+    if "checkReleaseBuilds" in s:
+        return
+    m = re.search(r"^android \{\s*$", s, re.M)
+    if not m:
+        fail("could not find android { block to disable lint in")
+    s = s[:m.end()] + "\n    lint {\n        checkReleaseBuilds = false\n    }" + s[m.end():]
+    open(path, "w", encoding="utf-8").write(s)
+
+
 if __name__ == "__main__":
     patch_manifest()
     patch_activity()
     patch_min_sdk()
+    patch_lint()
     print("Android project patched.")
