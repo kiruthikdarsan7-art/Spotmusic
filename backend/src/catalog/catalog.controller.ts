@@ -34,6 +34,12 @@ export class CatalogController {
     return this.catalog.home();
   }
 
+  /** Liveness probe for the hosting platform. No auth needed. */
+  @SkipThrottle() @Get('health')
+  health() {
+    return { status: 'ok' };
+  }
+
   @UseGuards(JwtAuthGuard) @Get('catalog/albums/:id')
   album(@Param('id', ParseUUIDPipe) id: string) {
     return this.catalog.album(id);
