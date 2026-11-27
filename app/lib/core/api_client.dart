@@ -16,7 +16,9 @@ class ApiClient {
   ApiClient(this._tokens, {required this.onSignedOut}) {
     dio = Dio(BaseOptions(
       baseUrl: kApiBaseUrl,
-      connectTimeout: const Duration(seconds: 10),
+      // Free hosting sleeps when idle and takes 30-60s to wake; give the
+      // first request enough time instead of failing at once.
+      connectTimeout: const Duration(seconds: 60),
       receiveTimeout: const Duration(seconds: 20),
     ));
     _plain = Dio(dio.options.copyWith());
