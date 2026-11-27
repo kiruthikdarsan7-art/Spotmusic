@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createReadStream } from 'fs';
 import { mkdir, stat, writeFile } from 'fs/promises';
-import { dirname, join, normalize, sep } from 'path';
+import { dirname, isAbsolute, join, normalize, sep } from 'path';
 import type { Readable } from 'stream';
 
 export interface StoredObject {
@@ -20,7 +20,10 @@ export class StorageService {
   private readonly root: string;
 
   constructor(cfg: ConfigService) {
-    this.root = join(process.cwd(), cfg.get<string>('STORAGE_DIR') ?? 'storage');
+    const dir = cfg.get<string>('STORAGE_DIR') ?? 'storage';
+    // Absolute paths (e.g. /tmp on serverless) are used as-is; relative ones
+    // stay relative to the working directory, as before.
+    this.root = isAbsolute(dir) ? dir : join(process.cwd(), dir);
   }
 
   private resolve(key: string): string {
