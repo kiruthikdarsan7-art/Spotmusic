@@ -39,32 +39,53 @@ async function main() {
   const db = app.get(DataSource);
   const storage = app.get(StorageService);
 
-  if ((await db.getRepository(Artist).count()) > 0) {
-    console.log('Catalog already has data. Nothing seeded.');
-    await app.close();
-    return;
-  }
-
+  // Idempotent: safe to run on every start. Free hosting wipes the local disk on
+  // redeploy while the database rows survive, so any audio file that is missing
+  // is regenerated here instead of leaving a track that cannot play.
   let seed = 1;
+  let created = 0;
+  let restored = 0;
   for (const a of CATALOG) {
-    const artist = await db.getRepository(Artist).save({ name: a.artist, imageUrl: null, bio: null });
+    let artist = await db.getRepository(Artist).findOne({ where: { name: a.artist } });
+    if (!artist) {
+      artist = await db.getRepository(Artist).save({ name: a.artist, imageUrl: null, bio: null });
+    }
     for (const al of a.albums) {
-      const album = await db.getRepository(Album).save({
-        title: al.title, artistId: artist.id, coverUrl: null, releaseYear: al.year,
-      });
-      for (const [i, title] of al.tracks.entries()) {
-        const { wav, durationMs } = makeWav({ rootHz: al.root, scale: al.scale, seconds: 24, seed: seed++ });
-        const audioKey = `audio/${album.id}-${i + 1}.wav`;
-        await storage.put(audioKey, wav);
-        await db.getRepository(Track).save({
-          title, artistId: artist.id, albumId: album.id, trackNumber: i + 1, durationMs,
-          genre: al.genre, audioKey, mimeType: 'audio/wav', available: true, ...DEV_RIGHTS,
-          licenseNote: 'Synthesised by the seed script. No third-party material.',
+      let album = await db.getRepository(Album).findOne({ where: { title: al.title, artistId: artist.id } });
+      if (!album) {
+        album = await db.getRepository(Album).save({
+          title: al.title, artistId: artist.id, coverUrl: null, releaseYear: al.year,
         });
+      }
+      for (const [i, title] of al.tracks.entries()) {
+        const trackSeed = seed++;
+        let track = await db.getRepository(Track).findOne({ where: { title, albumId: album.id } });
+        if (!track) {
+          const { wav, durationMs } = makeWav({ rootHz: al.root, scale: al.scale, seconds: 24, seed: trackSeed });
+          const audioKey = `audio/${album.id}-${i + 1}.wav`;
+          await storage.put(audioKey, wav);
+          track = await db.getRepository(Track).save({
+            title, artistId: artist.id, albumId: album.id, trackNumber: i + 1, durationMs,
+            genre: al.genre, audioKey, mimeType: 'audio/wav', available: true, ...DEV_RIGHTS,
+            licenseNote: 'Synthesised by the seed script. No third-party material.',
+          });
+          created++;
+        } else {
+          try {
+            await storage.get(track.audioKey);
+          } catch {
+            const { wav } = makeWav({ rootHz: al.root, scale: al.scale, seconds: 24, seed: trackSeed });
+            await storage.put(track.audioKey, wav);
+            restored++;
+          }
+        }
       }
     }
   }
-  console.log('Seeded', await db.getRepository(Track).count(), 'tracks.');
+  console.log(
+    `Seed check done. Created ${created} tracks, restored ${restored} audio files, ` +
+    `total ${await db.getRepository(Track).count()} tracks.`,
+  );
   await app.close();
 }
 
