@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { INestApplicationContext } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DataSource } from 'typeorm';
 import { AppModule } from './app.module';
@@ -34,14 +35,16 @@ const CATALOG: {
   },
 ];
 
-async function main() {
-  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
+/**
+ * Idempotent: safe to run on every start. Free hosting wipes the local disk on
+ * redeploy while the database rows survive, so any audio file that is missing
+ * is regenerated here instead of leaving a track that cannot play.
+ * Exported so serverless entry points can seed after initialising the app.
+ */
+export async function seedCatalog(app: INestApplicationContext) {
   const db = app.get(DataSource);
   const storage = app.get(StorageService);
 
-  // Idempotent: safe to run on every start. Free hosting wipes the local disk on
-  // redeploy while the database rows survive, so any audio file that is missing
-  // is regenerated here instead of leaving a track that cannot play.
   let seed = 1;
   let created = 0;
   let restored = 0;
@@ -82,14 +85,23 @@ async function main() {
       }
     }
   }
-  console.log(
-    `Seed check done. Created ${created} tracks, restored ${restored} audio files, ` +
-    `total ${await db.getRepository(Track).count()} tracks.`,
-  );
-  await app.close();
+  return { created, restored, total: await db.getRepository(Track).count() };
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+async function main() {
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
+  try {
+    const { created, restored, total } = await seedCatalog(app);
+    console.log(`Seed check done. Created ${created} tracks, restored ${restored} audio files, total ${total} tracks.`);
+  } finally {
+    await app.close();
+  }
+}
+
+// Only run as a script when executed directly (node dist/seed.js).
+if (require.main === module) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
