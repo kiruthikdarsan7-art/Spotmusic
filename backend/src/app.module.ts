@@ -19,13 +19,16 @@ import { Album, Artist, Track } from './catalog/catalog.entities';
       inject: [ConfigService],
       useFactory: (cfg: ConfigService) => {
         const prod = cfg.get('NODE_ENV') === 'production';
+        const url = cfg.getOrThrow<string>('DATABASE_URL');
+        // Hosted Postgres (Neon) requires SSL; its URL carries ?sslmode=require.
+        const needsSsl = /[?&]sslmode=require/.test(url) || url.includes('ssl=true');
         return {
           type: 'postgres' as const,
-          url: cfg.getOrThrow<string>('DATABASE_URL'),
+          url,
           entities: [User, Session, PasswordReset, Artist, Album, Track],
           // Auto-sync is for development only. Use migrations in production.
           synchronize: !prod,
-          ssl: prod ? { rejectUnauthorized: false } : false,
+          ssl: prod || needsSsl ? { rejectUnauthorized: false } : false,
         };
       },
     }),
