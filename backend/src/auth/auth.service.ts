@@ -162,7 +162,7 @@ export class AuthService {
 
   // ---------- sessions and tokens ----------
 
-  private async issue(user: User, deviceName?: string, familyId = randomUUID()): Promise<AuthResult> {
+  private async issue(user: User, deviceName?: string, familyId: string = randomUUID()): Promise<AuthResult> {
     const refreshToken = newOpaqueToken();
     const days = Number(this.cfg.get('REFRESH_TOKEN_TTL_DAYS') ?? 60);
     await this.sessions.save(
